@@ -153,8 +153,7 @@ func TraceFunction(manager *InstrumentationManager, fn *dst.FuncDecl, tracing *t
 			if manager.shouldInstrumentFunction(invInfo) {
 				manager.setPackage(invInfo.packageName)
 				decl := manager.getDeclaration(invInfo.functionName)
-				downstreamFunctionTraced = true
-				TraceFunction(manager, decl, tracing.TraceDownstreamFunction(), functionSegment())
+				_, downstreamFunctionTraced := TraceFunction(manager, decl, tracing.TraceDownstreamFunction(), functionSegment())
 				if downstreamFunctionTraced {
 					manager.addTxnArgumentToFunctionDecl(decl, txnVarName)
 					manager.addImport(codegen.NewRelicAgentImportPath)
