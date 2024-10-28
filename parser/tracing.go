@@ -7,52 +7,8 @@ import (
 	"github.com/dave/dst/dstutil"
 	"github.com/newrelic/go-easy-instrumentation/internal/codegen"
 	"github.com/newrelic/go-easy-instrumentation/internal/comment"
+	"github.com/newrelic/go-easy-instrumentation/parser/tracestate"
 )
-
-type tracingState struct {
-	definedTxn    bool
-	agentVariable string
-	txnVariable   string
-}
-
-func TraceMain(agentVariable, txnVariableName string) *tracingState {
-	return &tracingState{
-		definedTxn:    false,
-		agentVariable: agentVariable,
-		txnVariable:   txnVariableName,
-	}
-}
-
-func TraceDownstreamFunction(txnVariableName string) *tracingState {
-	return &tracingState{
-		txnVariable: txnVariableName,
-	}
-}
-
-func (tc *tracingState) CreateTransactionIfNeeded(c *dstutil.Cursor, functionName, txnVariableName string, endImmediately bool) {
-	if tc.agentVariable != "" && c.Index() > 0 {
-		tc.txnVariable = defaultTxnName
-		c.InsertBefore(codegen.StartTransaction(tc.agentVariable, defaultTxnName, functionName, tc.definedTxn))
-		tc.definedTxn = true
-		if endImmediately {
-			c.InsertAfter(codegen.EndTransaction(defaultTxnName))
-		}
-	}
-}
-
-func (tc *tracingState) GetTransactionVariable() string {
-	return tc.txnVariable
-}
-
-func (tc *tracingState) GetAgentVariable() string {
-	return tc.agentVariable
-}
-
-func (tc *tracingState) TraceDownstreamFunction() *tracingState {
-	return &tracingState{
-		txnVariable: tc.txnVariable,
-	}
-}
 
 // TraceFunction adds tracing to a function. This includes error capture, and passing agent metadata to relevant functions and services.
 // Traces all called functions inside the current package as well.
@@ -60,7 +16,7 @@ func (tc *tracingState) TraceDownstreamFunction() *tracingState {
 // the bool field is true, then the function was modified, and requires a transaction most likely.
 //
 // TODO: there is a ton of complexity around tracing async statements that do not have a transaction wrapping them. This is a feature gap.
-func TraceFunction(manager *InstrumentationManager, fn *dst.FuncDecl, tracing *tracingState) (*dst.FuncDecl, bool) {
+func TraceFunction(manager *InstrumentationManager, fn *dst.FuncDecl, tracing *tracestate.State) (*dst.FuncDecl, bool) {
 	TopLevelFunctionChanged := false
 	outputNode := dstutil.Apply(fn, nil, func(c *dstutil.Cursor) bool {
 		n := c.Node()
@@ -68,9 +24,9 @@ func TraceFunction(manager *InstrumentationManager, fn *dst.FuncDecl, tracing *t
 		case *dst.GoStmt:
 			// Skip Tracing of go functions in Main. This is extremenly complicated and not implemented right now.
 			// TODO: Implement this
-			agentVariable := tracing.GetAgentVariable()
+			agentVariable := tracing.AgentVariable()
 			if agentVariable == "" {
-				txnVarName := tracing.GetTransactionVariable()
+				txnVarName := tracing.TransactionVariable()
 				switch fun := v.Call.Fun.(type) {
 				case *dst.FuncLit:
 					// Add threaded txn to function arguments and parameters
@@ -89,7 +45,7 @@ func TraceFunction(manager *InstrumentationManager, fn *dst.FuncDecl, tracing *t
 					if manager.shouldInstrumentFunction(invInfo) {
 						manager.setPackage(invInfo.packageName)
 						decl := manager.getDeclaration(invInfo.functionName)
-						TraceFunction(manager, decl, tracing.TraceDownstreamFunction())
+						TraceFunction(manager, decl, tracing.DownstreamFunction())
 						manager.addTxnArgumentToFunctionDecl(decl, txnVarName)
 						manager.addImport(codegen.NewRelicAgentImportPath)
 						decl.Body.List = append([]dst.Stmt{codegen.DeferSegment(fmt.Sprintf("async %s", invInfo.functionName), txnVarName)}, decl.Body.List...)
@@ -106,21 +62,21 @@ func TraceFunction(manager *InstrumentationManager, fn *dst.FuncDecl, tracing *t
 			downstreamFunctionTraced := false
 			rootPkg := manager.currentPackage
 			invInfo := manager.getPackageFunctionInvocation(v)
-			txnVarName := tracing.GetTransactionVariable()
+			txnVarName := tracing.TransactionVariable()
 			if manager.shouldInstrumentFunction(invInfo) {
 				manager.setPackage(invInfo.packageName)
 				decl := manager.getDeclaration(invInfo.functionName)
-				_, downstreamFunctionTraced = TraceFunction(manager, decl, tracing.TraceDownstreamFunction())
+				_, downstreamFunctionTraced = TraceFunction(manager, decl, tracing.DownstreamFunction())
 				if downstreamFunctionTraced {
 					manager.addTxnArgumentToFunctionDecl(decl, txnVarName)
 					manager.addImport(codegen.NewRelicAgentImportPath)
-					if tracing.agentVariable == "" {
+					if tracing.AgentVariable() == "" {
 						decl.Body.List = append([]dst.Stmt{codegen.DeferSegment(invInfo.functionName, txnVarName)}, decl.Body.List...)
 					}
 				}
 			}
 			if manager.requiresTransactionArgument(invInfo, txnVarName) {
-				tracing.CreateTransactionIfNeeded(c, invInfo.functionName, txnVarName, true)
+				tracing.CreateTransactionIfNeeded(c, invInfo.functionName, true)
 				invInfo.call.Args = append(invInfo.call.Args, dst.NewIdent(txnVarName))
 				TopLevelFunctionChanged = true
 			}

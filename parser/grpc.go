@@ -10,6 +10,7 @@ import (
 	"github.com/newrelic/go-easy-instrumentation/internal/codegen"
 	"github.com/newrelic/go-easy-instrumentation/internal/util"
 	"github.com/newrelic/go-easy-instrumentation/parser/facts"
+	"github.com/newrelic/go-easy-instrumentation/parser/tracestate"
 )
 
 const (
@@ -132,9 +133,9 @@ func InstrumentGrpcServerMethod(manager *InstrumentationManager, c *dstutil.Curs
 	funcDecl, ok := n.(*dst.FuncDecl)
 	if ok && isGrpcServerMethod(manager, funcDecl) {
 		// find either a context or a server stream object
-		txnAssignment, ok := getTxnFromGrpcServer(manager, funcDecl.Type.Params.List, defaultTxnName)
+		txnAssignment, ok := getTxnFromGrpcServer(manager, funcDecl.Type.Params.List, codegen.DefaultTransactionVariable)
 		if ok {
-			decl, ok := TraceFunction(manager, funcDecl, TraceDownstreamFunction(defaultTxnName))
+			decl, ok := TraceFunction(manager, funcDecl, tracestate.DownstreamFunction(codegen.DefaultTransactionVariable))
 			if ok {
 				decl.Body.List = append([]dst.Stmt{txnAssignment}, decl.Body.List...)
 				c.Replace(decl)
@@ -147,10 +148,10 @@ func InstrumentGrpcServerMethod(manager *InstrumentationManager, c *dstutil.Curs
 //////////////////////////////////////////////
 
 // InstrumentGrpcServer adds the New Relic gRPC server interceptors to the grpc.NewServer call
-func InstrumentGrpcServer(manager *InstrumentationManager, stmt dst.Stmt, c *dstutil.Cursor, tracing *tracingState) bool {
+func InstrumentGrpcServer(manager *InstrumentationManager, stmt dst.Stmt, c *dstutil.Cursor, tracing *tracestate.State) bool {
 	if callExpr, ok := grpcNewServerCall(stmt); ok {
-		callExpr.Args = append(callExpr.Args, codegen.NrGrpcUnaryServerInterceptor(tracing.GetAgentVariable(), callExpr))
-		callExpr.Args = append(callExpr.Args, codegen.NrGrpcStreamServerInterceptor(tracing.GetAgentVariable(), callExpr))
+		callExpr.Args = append(callExpr.Args, codegen.NrGrpcUnaryServerInterceptor(tracing.AgentVariable(), callExpr))
+		callExpr.Args = append(callExpr.Args, codegen.NrGrpcStreamServerInterceptor(tracing.AgentVariable(), callExpr))
 		manager.addImport(codegen.NrgrpcImportPath)
 		return true
 	}

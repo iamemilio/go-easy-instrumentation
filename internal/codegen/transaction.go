@@ -7,6 +7,10 @@ import (
 	"github.com/dave/dst"
 )
 
+const (
+	DefaultTransactionVariable = "nrTxn"
+)
+
 func EndTransaction(transactionVariableName string) *dst.ExprStmt {
 	return &dst.ExprStmt{
 		X: &dst.CallExpr{
