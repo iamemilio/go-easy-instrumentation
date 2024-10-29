@@ -589,7 +589,7 @@ func Test_RequiresTransactionArgument(t *testing.T) {
 				currentPackage: "foo",
 			},
 			args: args{
-				inv:             &invocationInfo{packageName: "foo", functionName: "bar", call: &dst.CallExpr{Args: []dst.Expr{codegen.TxnNewGoroutine("txn")}}},
+				inv:             &invocationInfo{packageName: "foo", functionName: "bar", call: &dst.CallExpr{Args: []dst.Expr{codegen.TxnNewGoroutine(dst.NewIdent("txn"))}}},
 				txnVariableName: "txn",
 			},
 			want: false,

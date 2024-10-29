@@ -27,11 +27,12 @@ func TraceFunction(manager *InstrumentationManager, fn *dst.FuncDecl, tracing *t
 			agentVariable := tracing.AgentVariable()
 			if agentVariable == "" {
 				txnVarName := tracing.TransactionVariable()
+				pkg := manager.getDecoratorPackage()
 				switch fun := v.Call.Fun.(type) {
 				case *dst.FuncLit:
 					// Add threaded txn to function arguments and parameters
-					fun.Type.Params.List = append(fun.Type.Params.List, codegen.TxnAsParameter(txnVarName))
-					v.Call.Args = append(v.Call.Args, codegen.TxnNewGoroutine(txnVarName))
+					tracing.AddTracingToFunctionLiteral(pkg, fun)
+					tracing.AddTracingToCall(pkg, v.Call, true)
 					// add go-agent/v3/newrelic to imports
 					manager.addImport(codegen.NewRelicAgentImportPath)
 
@@ -48,10 +49,11 @@ func TraceFunction(manager *InstrumentationManager, fn *dst.FuncDecl, tracing *t
 						TraceFunction(manager, decl, tracing.DownstreamFunction())
 						manager.addTxnArgumentToFunctionDecl(decl, txnVarName)
 						manager.addImport(codegen.NewRelicAgentImportPath)
+						//					txnAssignment := tracing.AssignTransactionVariable(codegen.DefaultTransactionVariable)
 						decl.Body.List = append([]dst.Stmt{codegen.DeferSegment(fmt.Sprintf("async %s", invInfo.functionName), txnVarName)}, decl.Body.List...)
 					}
 					if manager.requiresTransactionArgument(invInfo, txnVarName) {
-						invInfo.call.Args = append(invInfo.call.Args, codegen.TxnNewGoroutine(txnVarName))
+						invInfo.call.Args = append(invInfo.call.Args, codegen.TxnNewGoroutine(dst.NewIdent(txnVarName)))
 						c.Replace(v)
 						TopLevelFunctionChanged = true
 					}
